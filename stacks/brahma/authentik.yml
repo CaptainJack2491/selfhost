@@ -1,35 +1,52 @@
----
-
 services:
   postgresql:
     image: docker.io/library/postgres:16-alpine
-    restart: unless-stopped
+    volumes:
+      - database:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: verysecurepassword
+      POSTGRES_USER: ${PG_USER:-authentik}
+      POSTGRES_DB: ${PG_DB:-authentik}
+    env_file:
+      - .env
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
       start_period: 20s
       interval: 30s
       retries: 5
       timeout: 5s
-    volumes:
-      - database:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
-      POSTGRES_USER: ${PG_USER:-authentik}
-      POSTGRES_DB: ${PG_DB:-authentik}
-    env_file:
-      - .env
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == brahma
+      restart_policy:
+        condition: on-failure
+
+
+
   redis:
     image: docker.io/library/redis:alpine
     command: --save 60 1 --loglevel warning
     restart: unless-stopped
+    volumes:
+      - redis:/data
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == brahma
+      restart_policy:
+        condition: on-failure
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
       start_period: 20s
       interval: 30s
       retries: 5
       timeout: 3s
-    volumes:
-      - redis:/data
+
+
+
   server:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.12.1}
     restart: unless-stopped
@@ -39,20 +56,35 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: postgresql
       AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
       AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+      AUTHENTIK_POSTGRESQL__PASSWORD: verysecurepassword
     volumes:
-      - ./media:/media
-      - ./custom-templates:/templates
+      - /home/jayrup/appdata/authentik/media:/media
+      - /home/jayrup/appdata/authentik/custom-templates:/templates
     env_file:
       - .env
-    ports:
-      - "${COMPOSE_PORT_HTTP:-9000}:9000"
-      - "${COMPOSE_PORT_HTTPS:-9443}:9443"
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+   #ports:
+   #  - "${COMPOSE_PORT_HTTP:-9000}:9000"
+   #  - "${COMPOSE_PORT_HTTPS:-9443}:9443"
+    networks:
+      - traefik
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == brahma
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.authentik.rule=Host(`authentik.jayrup.me`)"
+        - "traefik.http.routers.authentik.entrypoints=https"
+        - "traefik.http.routers.authentik.tls=true"
+        - "traefik.http.routers.authentik.tls.certresolver=myresolver"
+        - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+      restart_policy:
+        condition: on-failure
+
+
+
+
   worker:
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2024.12.1}
     restart: unless-stopped
@@ -62,7 +94,7 @@ services:
       AUTHENTIK_POSTGRESQL__HOST: postgresql
       AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
       AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+      AUTHENTIK_POSTGRESQL__PASSWORD: verysecurepassword
     # `user: root` and the docker socket volume are optional.
     # See more for the docker socket integration here:
     # https://goauthentik.io/docs/outposts/integrations/docker
@@ -72,19 +104,25 @@ services:
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./media:/media
-      - ./certs:/certs
-      - ./custom-templates:/templates
+      - /home/jayrup/appdata/authentik/media:/media
+      - /home/jayrup/appdata/authentik/certs:/certs
+      - /home/jayrup/appdata/authentik/custom-templates:/templates
     env_file:
       - .env
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == brahma
+      restart_policy:
+        condition: on-failure
 
 volumes:
   database:
     driver: local
   redis:
     driver: local
+
+networks:
+  traefik:
+    external: true
