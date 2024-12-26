@@ -1,0 +1,38 @@
+services:
+  traefik:
+    image: traefik:v3.2.3
+    command:
+      - "--log.level=DEBUG"
+      - "--accesslog=true" 
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - traefik
+    volumes:
+      - $HOME/traefik/traefik.yml:/traefik.yml:ro  # Named volume for the Traefik config
+      - $HOME/traefik/letsencrypt:/letsencrypt  # Named volume for Let's Encrypt data
+    deploy:
+      replicas: 1  # Ensures only one instance is deployed
+      placement:
+        constraints:
+          - node.hostname == debian-vps 
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.dashboard.rule=Host(`traefik.jayrup.me`)"
+
+        # HTTPS: Enable HTTPS with Let's Encrypt
+        - "traefik.http.routers.dashboard.entrypoints=https"
+        - "traefik.http.routers.dashboard.tls=true"  # Enable TLS (HTTPS)
+        - "traefik.http.routers.dashboard.tls.certresolver=myresolver"  # Use Let's Encrypt resolver
+
+        - "traefik.http.services.dashboard.loadbalancer.server.port=8080"
+        - "traefik.http.routers.dashboard.service=api@internal"
+        - "traefik.http.routers.dashboard.middlewares=auth"
+        - "traefik.http.middlewares.auth.basicauth.users=user:$$2y$$05$$oeiQhjb3NvZ5PWcheNPbQuceWTmsgMTmjtT/YvY/ZlzxOB1aCnzH6"
+    restart: unless-stopped
+
+networks:
+  traefik:
+    external: true
+
