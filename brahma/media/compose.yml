@@ -1,0 +1,10 @@
+services:
+  jellyfin:
+    image: linuxserver/jellyfin
+    container_name: jellyfin
+    restart: unless-stopped
+    ports:
+      - 8096:8096
+    volumes:
+      - ~/media/jellyfin:/media
+      - ~/appdata:/config
